@@ -2,7 +2,8 @@
 # See https://go.k8s.io/owners for format documentation
 
 reviewers:
-  # - github-username
+  - aishukamal
+  - Edwinhr716
 
 approvers:
-  # - github-username
+  - aishukamal
