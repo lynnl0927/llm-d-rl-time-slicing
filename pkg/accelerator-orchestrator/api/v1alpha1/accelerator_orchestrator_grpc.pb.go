@@ -21,7 +21,6 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AcceleratorOrchestratorService_Acquire_FullMethodName        = "/accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService/Acquire"
 	AcceleratorOrchestratorService_Yield_FullMethodName          = "/accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService/Yield"
-	AcceleratorOrchestratorService_Heartbeat_FullMethodName      = "/accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService/Heartbeat"
 	AcceleratorOrchestratorService_ListGroups_FullMethodName     = "/accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService/ListGroups"
 	AcceleratorOrchestratorService_GetGroupStatus_FullMethodName = "/accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService/GetGroupStatus"
 )
@@ -37,22 +36,18 @@ type AcceleratorOrchestratorServiceClient interface {
 	// This call blocks until access is granted.
 	// If the group is idle and the job's context is already RUNNING on the accelerator,
 	// it returns immediately. Otherwise, it queues the job and waits for the current
-	// holder to yield, then drives the snapshot/restore cycle.
+	// locking_job to yield, then drives the snapshot/restore cycle.
 	Acquire(ctx context.Context, in *AcquireRequest, opts ...grpc.CallOption) (*AcquireResponse, error)
 	// Yield releases exclusive access to a time-slice group.
-	// It returns immediately to the caller, allowing the job to continue CPU-bound work
+	// It returns immediately to the caller once recorded, allowing the job to continue CPU-bound work
 	// without waiting for the snapshot to complete.
 	// If no other job is waiting in the queue, the snapshot is deferred (skipped)
 	// and the context remains live on the accelerator.
 	Yield(ctx context.Context, in *YieldRequest, opts ...grpc.CallOption) (*YieldResponse, error)
-	// Heartbeat is sent periodically by the client to signal that the job is still alive.
-	// If a heartbeat lapses, the orchestrator will evict the job. If the job held the lock,
-	// the lock is released and the group is marked FAULTED to prevent corruption.
-	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
-	// ListGroups returns a list of all active time-slice group IDs.
+	// ListGroups returns a list of all known time-slice group IDs.
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
 	// GetGroupStatus returns the detailed status of a specific time-slice group,
-	// including the current lock holder, waiter queue depth, and individual agent states.
+	// including the current locking job, waiter queue depth, and individual job context states.
 	GetGroupStatus(ctx context.Context, in *GetGroupStatusRequest, opts ...grpc.CallOption) (*GetGroupStatusResponse, error)
 }
 
@@ -78,16 +73,6 @@ func (c *acceleratorOrchestratorServiceClient) Yield(ctx context.Context, in *Yi
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(YieldResponse)
 	err := c.cc.Invoke(ctx, AcceleratorOrchestratorService_Yield_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *acceleratorOrchestratorServiceClient) Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(HeartbeatResponse)
-	err := c.cc.Invoke(ctx, AcceleratorOrchestratorService_Heartbeat_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,22 +110,18 @@ type AcceleratorOrchestratorServiceServer interface {
 	// This call blocks until access is granted.
 	// If the group is idle and the job's context is already RUNNING on the accelerator,
 	// it returns immediately. Otherwise, it queues the job and waits for the current
-	// holder to yield, then drives the snapshot/restore cycle.
+	// locking_job to yield, then drives the snapshot/restore cycle.
 	Acquire(context.Context, *AcquireRequest) (*AcquireResponse, error)
 	// Yield releases exclusive access to a time-slice group.
-	// It returns immediately to the caller, allowing the job to continue CPU-bound work
+	// It returns immediately to the caller once recorded, allowing the job to continue CPU-bound work
 	// without waiting for the snapshot to complete.
 	// If no other job is waiting in the queue, the snapshot is deferred (skipped)
 	// and the context remains live on the accelerator.
 	Yield(context.Context, *YieldRequest) (*YieldResponse, error)
-	// Heartbeat is sent periodically by the client to signal that the job is still alive.
-	// If a heartbeat lapses, the orchestrator will evict the job. If the job held the lock,
-	// the lock is released and the group is marked FAULTED to prevent corruption.
-	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
-	// ListGroups returns a list of all active time-slice group IDs.
+	// ListGroups returns a list of all known time-slice group IDs.
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
 	// GetGroupStatus returns the detailed status of a specific time-slice group,
-	// including the current lock holder, waiter queue depth, and individual agent states.
+	// including the current locking job, waiter queue depth, and individual job context states.
 	GetGroupStatus(context.Context, *GetGroupStatusRequest) (*GetGroupStatusResponse, error)
 	mustEmbedUnimplementedAcceleratorOrchestratorServiceServer()
 }
@@ -157,9 +138,6 @@ func (UnimplementedAcceleratorOrchestratorServiceServer) Acquire(context.Context
 }
 func (UnimplementedAcceleratorOrchestratorServiceServer) Yield(context.Context, *YieldRequest) (*YieldResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Yield not implemented")
-}
-func (UnimplementedAcceleratorOrchestratorServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
 }
 func (UnimplementedAcceleratorOrchestratorServiceServer) ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListGroups not implemented")
@@ -225,24 +203,6 @@ func _AcceleratorOrchestratorService_Yield_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AcceleratorOrchestratorService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(HeartbeatRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AcceleratorOrchestratorServiceServer).Heartbeat(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AcceleratorOrchestratorService_Heartbeat_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AcceleratorOrchestratorServiceServer).Heartbeat(ctx, req.(*HeartbeatRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AcceleratorOrchestratorService_ListGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListGroupsRequest)
 	if err := dec(in); err != nil {
@@ -293,10 +253,6 @@ var AcceleratorOrchestratorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Yield",
 			Handler:    _AcceleratorOrchestratorService_Yield_Handler,
-		},
-		{
-			MethodName: "Heartbeat",
-			Handler:    _AcceleratorOrchestratorService_Heartbeat_Handler,
 		},
 		{
 			MethodName: "ListGroups",

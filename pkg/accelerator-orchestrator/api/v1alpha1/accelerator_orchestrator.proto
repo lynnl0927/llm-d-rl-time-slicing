@@ -4,6 +4,9 @@ package accelerator_orchestrator.v1alpha1;
 
 option go_package = "github.com/llm-d-incubation/llm-d-rl-time-slicing/pkg/accelerator-orchestrator/api/v1alpha1;v1alpha1";
 
+import "google/protobuf/timestamp.proto";
+
+
 // AcceleratorOrchestratorService provides APIs for managing accelerator orchestration.
 // It coordinates access to shared accelerators among multiple jobs in a time-slice group.
 service AcceleratorOrchestratorService {
@@ -11,26 +14,21 @@ service AcceleratorOrchestratorService {
   // This call blocks until access is granted.
   // If the group is idle and the job's context is already RUNNING on the accelerator,
   // it returns immediately. Otherwise, it queues the job and waits for the current
-  // holder to yield, then drives the snapshot/restore cycle.
+  // locking_job to yield, then drives the snapshot/restore cycle.
   rpc Acquire(AcquireRequest) returns (AcquireResponse);
 
   // Yield releases exclusive access to a time-slice group.
-  // It returns immediately to the caller, allowing the job to continue CPU-bound work
+  // It returns immediately to the caller once recorded, allowing the job to continue CPU-bound work
   // without waiting for the snapshot to complete.
   // If no other job is waiting in the queue, the snapshot is deferred (skipped)
   // and the context remains live on the accelerator.
   rpc Yield(YieldRequest) returns (YieldResponse);
 
-  // Heartbeat is sent periodically by the client to signal that the job is still alive.
-  // If a heartbeat lapses, the orchestrator will evict the job. If the job held the lock,
-  // the lock is released and the group is marked FAULTED.
-  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
-
   // ListGroups returns a list of all known time-slice group IDs.
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
 
   // GetGroupStatus returns the detailed status of a specific time-slice group,
-  // including the current lock holder, waiter queue depth, and individual job context states.
+  // including the current locking job, waiter queue depth, and individual job context states.
   rpc GetGroupStatus(GetGroupStatusRequest) returns (GetGroupStatusResponse);
 }
 
@@ -80,19 +78,6 @@ message YieldResponse {
   bool snapshot_deferred = 3;
 }
 
-// HeartbeatRequest is the periodic heartbeat signal from the client.
-message HeartbeatRequest {
-  // job_id is the unique identifier of the job sending the heartbeat.
-  string job_id = 1;
-
-  // group_id is the unique identifier of the group the job is active in.
-  string group_id = 2;
-}
-
-// HeartbeatResponse is the response to a heartbeat signal.
-message HeartbeatResponse {
-}
-
 // ListGroupsRequest is the request to list active groups.
 message ListGroupsRequest {}
 
@@ -110,7 +95,7 @@ message GetGroupStatusRequest {
 
 // GetGroupStatusResponse is the response containing group status.
 message GetGroupStatusResponse {
-  // group contains the high-level status of the group (holder, queue depth).
+  // group contains the high-level status of the group (locking_job, queue depth).
   GroupStatus group = 1;
 
   // agent_job_states contains the detailed state of this job across all
@@ -123,12 +108,38 @@ message GroupStatus {
   // group_id is the unique identifier of the group.
   string group_id = 1;
 
-  // holder is the job_id of the job currently holding the group lock.
+  // State defines the possible states of a group lock.
+  enum State {
+    // STATE_UNSPECIFIED is the default unspecified state.
+    STATE_UNSPECIFIED = 0;
+    // STATE_UNKNOWN indicates the state cannot be determined (e.g. agents unreachable).
+    STATE_UNKNOWN = 1;
+    // STATE_IDLE indicates the group is unlocked and has no yielded job.
+    STATE_IDLE = 2;
+    // STATE_IDLE_YIELDED indicates the group lock is free but the context is still active (yielded).
+    STATE_IDLE_YIELDED = 3;
+    // STATE_LOCKED indicates a job holds the lock and has not yielded.
+    STATE_LOCKED = 4;
+    // STATE_SWITCHING indicates a transition is in progress.
+    STATE_SWITCHING = 5;
+  }
+
+  // group_state is the current state of the group lock.
+  State group_state = 2;
+
+  // state_timestamp is the time when the orchestrator entered the current state.
+  google.protobuf.Timestamp state_timestamp = 3;
+
+  // locking_job is the job_id of the job currently holding the group lock.
   // Empty if the group is currently idle (unlocked).
-  string holder = 2;
+  string locking_job = 4;
+
+  // active_job is the job_id of the job whose context is currently active on the accelerators in the group.
+  // Empty if no job context is active.
+  string active_job = 5;
 
   // waiter_queue_depth is the number of jobs currently waiting in the queue.
-  int64 waiter_queue_depth = 3;
+  int64 waiter_queue_depth = 6;
 }
 
 // SnapshotAgentJobState represents the state of a job's accelerator context

@@ -35,12 +35,6 @@ func (s *Server) Yield(ctx context.Context, req *pb.YieldRequest) (*pb.YieldResp
 	return nil, status.Errorf(codes.Unimplemented, "method Yield not implemented")
 }
 
-// Heartbeat implements AcceleratorOrchestratorService.Heartbeat.
-func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
-	log.Printf("Heartbeat called: JobID=%s, GroupID=%s", req.GetJobId(), req.GetGroupId())
-	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
-}
-
 // ListGroups implements AcceleratorOrchestratorService.ListGroups.
 func (s *Server) ListGroups(ctx context.Context, req *pb.ListGroupsRequest) (*pb.ListGroupsResponse, error) {
 	log.Printf("ListGroups called")

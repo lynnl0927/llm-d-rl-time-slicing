@@ -9,6 +9,7 @@ package v1alpha1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -20,6 +21,71 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// State defines the possible states of a group lock.
+type GroupStatus_State int32
+
+const (
+	// STATE_UNSPECIFIED is the default unspecified state.
+	GroupStatus_STATE_UNSPECIFIED GroupStatus_State = 0
+	// STATE_UNKNOWN indicates the state cannot be determined (e.g. agents unreachable).
+	GroupStatus_STATE_UNKNOWN GroupStatus_State = 1
+	// STATE_IDLE indicates the group is unlocked and has no yielded job.
+	GroupStatus_STATE_IDLE GroupStatus_State = 2
+	// STATE_IDLE_YIELDED indicates the group lock is free but the context is still active (yielded).
+	GroupStatus_STATE_IDLE_YIELDED GroupStatus_State = 3
+	// STATE_LOCKED indicates a job holds the lock and has not yielded.
+	GroupStatus_STATE_LOCKED GroupStatus_State = 4
+	// STATE_SWITCHING indicates a transition is in progress.
+	GroupStatus_STATE_SWITCHING GroupStatus_State = 5
+)
+
+// Enum value maps for GroupStatus_State.
+var (
+	GroupStatus_State_name = map[int32]string{
+		0: "STATE_UNSPECIFIED",
+		1: "STATE_UNKNOWN",
+		2: "STATE_IDLE",
+		3: "STATE_IDLE_YIELDED",
+		4: "STATE_LOCKED",
+		5: "STATE_SWITCHING",
+	}
+	GroupStatus_State_value = map[string]int32{
+		"STATE_UNSPECIFIED":  0,
+		"STATE_UNKNOWN":      1,
+		"STATE_IDLE":         2,
+		"STATE_IDLE_YIELDED": 3,
+		"STATE_LOCKED":       4,
+		"STATE_SWITCHING":    5,
+	}
+)
+
+func (x GroupStatus_State) Enum() *GroupStatus_State {
+	p := new(GroupStatus_State)
+	*p = x
+	return p
+}
+
+func (x GroupStatus_State) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GroupStatus_State) Descriptor() protoreflect.EnumDescriptor {
+	return file_accelerator_orchestrator_proto_enumTypes[0].Descriptor()
+}
+
+func (GroupStatus_State) Type() protoreflect.EnumType {
+	return &file_accelerator_orchestrator_proto_enumTypes[0]
+}
+
+func (x GroupStatus_State) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GroupStatus_State.Descriptor instead.
+func (GroupStatus_State) EnumDescriptor() ([]byte, []int) {
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{8, 0}
+}
 
 // State defines the possible states of a job's accelerator context.
 type SnapshotAgentJobState_State int32
@@ -70,11 +136,11 @@ func (x SnapshotAgentJobState_State) String() string {
 }
 
 func (SnapshotAgentJobState_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_accelerator_orchestrator_proto_enumTypes[0].Descriptor()
+	return file_accelerator_orchestrator_proto_enumTypes[1].Descriptor()
 }
 
 func (SnapshotAgentJobState_State) Type() protoreflect.EnumType {
-	return &file_accelerator_orchestrator_proto_enumTypes[0]
+	return &file_accelerator_orchestrator_proto_enumTypes[1]
 }
 
 func (x SnapshotAgentJobState_State) Number() protoreflect.EnumNumber {
@@ -83,7 +149,7 @@ func (x SnapshotAgentJobState_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SnapshotAgentJobState_State.Descriptor instead.
 func (SnapshotAgentJobState_State) EnumDescriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{11, 0}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{9, 0}
 }
 
 // AcquireRequest is the request to acquire exclusive access to a group.
@@ -328,98 +394,6 @@ func (x *YieldResponse) GetSnapshotDeferred() bool {
 	return false
 }
 
-// HeartbeatRequest is the periodic heartbeat signal from the client.
-type HeartbeatRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// job_id is the unique identifier of the job sending the heartbeat.
-	JobId string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	// group_id is the unique identifier of the group the job is active in.
-	GroupId       string `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *HeartbeatRequest) Reset() {
-	*x = HeartbeatRequest{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *HeartbeatRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*HeartbeatRequest) ProtoMessage() {}
-
-func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
-func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *HeartbeatRequest) GetJobId() string {
-	if x != nil {
-		return x.JobId
-	}
-	return ""
-}
-
-func (x *HeartbeatRequest) GetGroupId() string {
-	if x != nil {
-		return x.GroupId
-	}
-	return ""
-}
-
-// HeartbeatResponse is the response to a heartbeat signal.
-type HeartbeatResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *HeartbeatResponse) Reset() {
-	*x = HeartbeatResponse{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *HeartbeatResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*HeartbeatResponse) ProtoMessage() {}
-
-func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
-func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{5}
-}
-
 // ListGroupsRequest is the request to list active groups.
 type ListGroupsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -429,7 +403,7 @@ type ListGroupsRequest struct {
 
 func (x *ListGroupsRequest) Reset() {
 	*x = ListGroupsRequest{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[6]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -441,7 +415,7 @@ func (x *ListGroupsRequest) String() string {
 func (*ListGroupsRequest) ProtoMessage() {}
 
 func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[6]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -454,7 +428,7 @@ func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsRequest.ProtoReflect.Descriptor instead.
 func (*ListGroupsRequest) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{6}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{4}
 }
 
 // ListGroupsResponse is the response containing active groups.
@@ -468,7 +442,7 @@ type ListGroupsResponse struct {
 
 func (x *ListGroupsResponse) Reset() {
 	*x = ListGroupsResponse{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[7]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -480,7 +454,7 @@ func (x *ListGroupsResponse) String() string {
 func (*ListGroupsResponse) ProtoMessage() {}
 
 func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[7]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -493,7 +467,7 @@ func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsResponse.ProtoReflect.Descriptor instead.
 func (*ListGroupsResponse) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{7}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListGroupsResponse) GetGroupIds() []string {
@@ -514,7 +488,7 @@ type GetGroupStatusRequest struct {
 
 func (x *GetGroupStatusRequest) Reset() {
 	*x = GetGroupStatusRequest{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[8]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +500,7 @@ func (x *GetGroupStatusRequest) String() string {
 func (*GetGroupStatusRequest) ProtoMessage() {}
 
 func (x *GetGroupStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[8]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +513,7 @@ func (x *GetGroupStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupStatusRequest) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{8}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetGroupStatusRequest) GetGroupId() string {
@@ -552,7 +526,7 @@ func (x *GetGroupStatusRequest) GetGroupId() string {
 // GetGroupStatusResponse is the response containing group status.
 type GetGroupStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// group contains the high-level status of the group (holder, queue depth).
+	// group contains the high-level status of the group (locking_job, queue depth).
 	Group *GroupStatus `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
 	// agent_job_states contains the detailed state of this job across all
 	// node-local snapshot agents participating in the group.
@@ -563,7 +537,7 @@ type GetGroupStatusResponse struct {
 
 func (x *GetGroupStatusResponse) Reset() {
 	*x = GetGroupStatusResponse{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[9]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -575,7 +549,7 @@ func (x *GetGroupStatusResponse) String() string {
 func (*GetGroupStatusResponse) ProtoMessage() {}
 
 func (x *GetGroupStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[9]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -588,7 +562,7 @@ func (x *GetGroupStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupStatusResponse) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{9}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetGroupStatusResponse) GetGroup() *GroupStatus {
@@ -610,18 +584,25 @@ type GroupStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// group_id is the unique identifier of the group.
 	GroupId string `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
-	// holder is the job_id of the job currently holding the group lock.
+	// group_state is the current state of the group lock.
+	GroupState GroupStatus_State `protobuf:"varint,2,opt,name=group_state,json=groupState,proto3,enum=accelerator_orchestrator.v1alpha1.GroupStatus_State" json:"group_state,omitempty"`
+	// state_timestamp is the time when the orchestrator entered the current state.
+	StateTimestamp *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=state_timestamp,json=stateTimestamp,proto3" json:"state_timestamp,omitempty"`
+	// locking_job is the job_id of the job currently holding the group lock.
 	// Empty if the group is currently idle (unlocked).
-	Holder string `protobuf:"bytes,2,opt,name=holder,proto3" json:"holder,omitempty"`
-	// waiter_queue_depth is the number of jobs currently waiting in the FIFO queue.
-	WaiterQueueDepth int64 `protobuf:"varint,3,opt,name=waiter_queue_depth,json=waiterQueueDepth,proto3" json:"waiter_queue_depth,omitempty"`
+	LockingJob string `protobuf:"bytes,4,opt,name=locking_job,json=lockingJob,proto3" json:"locking_job,omitempty"`
+	// active_job is the job_id of the job whose context is currently active on the accelerators in the group.
+	// Empty if no job context is active.
+	ActiveJob string `protobuf:"bytes,5,opt,name=active_job,json=activeJob,proto3" json:"active_job,omitempty"`
+	// waiter_queue_depth is the number of jobs currently waiting in the queue.
+	WaiterQueueDepth int64 `protobuf:"varint,6,opt,name=waiter_queue_depth,json=waiterQueueDepth,proto3" json:"waiter_queue_depth,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GroupStatus) Reset() {
 	*x = GroupStatus{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[10]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -633,7 +614,7 @@ func (x *GroupStatus) String() string {
 func (*GroupStatus) ProtoMessage() {}
 
 func (x *GroupStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[10]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -646,7 +627,7 @@ func (x *GroupStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupStatus.ProtoReflect.Descriptor instead.
 func (*GroupStatus) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{10}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GroupStatus) GetGroupId() string {
@@ -656,9 +637,30 @@ func (x *GroupStatus) GetGroupId() string {
 	return ""
 }
 
-func (x *GroupStatus) GetHolder() string {
+func (x *GroupStatus) GetGroupState() GroupStatus_State {
 	if x != nil {
-		return x.Holder
+		return x.GroupState
+	}
+	return GroupStatus_STATE_UNSPECIFIED
+}
+
+func (x *GroupStatus) GetStateTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StateTimestamp
+	}
+	return nil
+}
+
+func (x *GroupStatus) GetLockingJob() string {
+	if x != nil {
+		return x.LockingJob
+	}
+	return ""
+}
+
+func (x *GroupStatus) GetActiveJob() string {
+	if x != nil {
+		return x.ActiveJob
 	}
 	return ""
 }
@@ -684,7 +686,7 @@ type SnapshotAgentJobState struct {
 
 func (x *SnapshotAgentJobState) Reset() {
 	*x = SnapshotAgentJobState{}
-	mi := &file_accelerator_orchestrator_proto_msgTypes[11]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -696,7 +698,7 @@ func (x *SnapshotAgentJobState) String() string {
 func (*SnapshotAgentJobState) ProtoMessage() {}
 
 func (x *SnapshotAgentJobState) ProtoReflect() protoreflect.Message {
-	mi := &file_accelerator_orchestrator_proto_msgTypes[11]
+	mi := &file_accelerator_orchestrator_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -709,7 +711,7 @@ func (x *SnapshotAgentJobState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotAgentJobState.ProtoReflect.Descriptor instead.
 func (*SnapshotAgentJobState) Descriptor() ([]byte, []int) {
-	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{11}
+	return file_accelerator_orchestrator_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SnapshotAgentJobState) GetAgent() string {
@@ -730,7 +732,7 @@ var File_accelerator_orchestrator_proto protoreflect.FileDescriptor
 
 const file_accelerator_orchestrator_proto_rawDesc = "" +
 	"\n" +
-	"\x1eaccelerator_orchestrator.proto\x12!accelerator_orchestrator.v1alpha1\"B\n" +
+	"\x1eaccelerator_orchestrator.proto\x12!accelerator_orchestrator.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\"B\n" +
 	"\x0eAcquireRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x19\n" +
 	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"s\n" +
@@ -744,11 +746,7 @@ const file_accelerator_orchestrator_proto_rawDesc = "" +
 	"\rYieldResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12'\n" +
 	"\x0fpending_waiters\x18\x02 \x01(\x03R\x0ependingWaiters\x12+\n" +
-	"\x11snapshot_deferred\x18\x03 \x01(\bR\x10snapshotDeferred\"D\n" +
-	"\x10HeartbeatRequest\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\x13\n" +
-	"\x11HeartbeatResponse\"\x13\n" +
+	"\x11snapshot_deferred\x18\x03 \x01(\bR\x10snapshotDeferred\"\x13\n" +
 	"\x11ListGroupsRequest\"1\n" +
 	"\x12ListGroupsResponse\x12\x1b\n" +
 	"\tgroup_ids\x18\x01 \x03(\tR\bgroupIds\"2\n" +
@@ -756,11 +754,25 @@ const file_accelerator_orchestrator_proto_rawDesc = "" +
 	"\bgroup_id\x18\x01 \x01(\tR\agroupId\"\xc2\x01\n" +
 	"\x16GetGroupStatusResponse\x12D\n" +
 	"\x05group\x18\x01 \x01(\v2..accelerator_orchestrator.v1alpha1.GroupStatusR\x05group\x12b\n" +
-	"\x10agent_job_states\x18\x02 \x03(\v28.accelerator_orchestrator.v1alpha1.SnapshotAgentJobStateR\x0eagentJobStates\"n\n" +
+	"\x10agent_job_states\x18\x02 \x03(\v28.accelerator_orchestrator.v1alpha1.SnapshotAgentJobStateR\x0eagentJobStates\"\xb5\x03\n" +
 	"\vGroupStatus\x12\x19\n" +
-	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x16\n" +
-	"\x06holder\x18\x02 \x01(\tR\x06holder\x12,\n" +
-	"\x12waiter_queue_depth\x18\x03 \x01(\x03R\x10waiterQueueDepth\"\x8a\x02\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12U\n" +
+	"\vgroup_state\x18\x02 \x01(\x0e24.accelerator_orchestrator.v1alpha1.GroupStatus.StateR\n" +
+	"groupState\x12C\n" +
+	"\x0fstate_timestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x0estateTimestamp\x12\x1f\n" +
+	"\vlocking_job\x18\x04 \x01(\tR\n" +
+	"lockingJob\x12\x1d\n" +
+	"\n" +
+	"active_job\x18\x05 \x01(\tR\tactiveJob\x12,\n" +
+	"\x12waiter_queue_depth\x18\x06 \x01(\x03R\x10waiterQueueDepth\"\x80\x01\n" +
+	"\x05State\x12\x15\n" +
+	"\x11STATE_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rSTATE_UNKNOWN\x10\x01\x12\x0e\n" +
+	"\n" +
+	"STATE_IDLE\x10\x02\x12\x16\n" +
+	"\x12STATE_IDLE_YIELDED\x10\x03\x12\x10\n" +
+	"\fSTATE_LOCKED\x10\x04\x12\x13\n" +
+	"\x0fSTATE_SWITCHING\x10\x05\"\x8a\x02\n" +
 	"\x15SnapshotAgentJobState\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12[\n" +
 	"\tjob_state\x18\x02 \x01(\x0e2>.accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.StateR\bjobState\"~\n" +
@@ -771,11 +783,10 @@ const file_accelerator_orchestrator_proto_rawDesc = "" +
 	"\rSTATE_RUNNING\x10\x02\x12\x17\n" +
 	"\x13STATE_TRANSITIONING\x10\x03\x12\x0f\n" +
 	"\vSTATE_SAVED\x10\x04\x12\x11\n" +
-	"\rSTATE_FAULTED\x10\x052\xf9\x04\n" +
+	"\rSTATE_FAULTED\x10\x052\x81\x04\n" +
 	"\x1eAcceleratorOrchestratorService\x12p\n" +
 	"\aAcquire\x121.accelerator_orchestrator.v1alpha1.AcquireRequest\x1a2.accelerator_orchestrator.v1alpha1.AcquireResponse\x12j\n" +
-	"\x05Yield\x12/.accelerator_orchestrator.v1alpha1.YieldRequest\x1a0.accelerator_orchestrator.v1alpha1.YieldResponse\x12v\n" +
-	"\tHeartbeat\x123.accelerator_orchestrator.v1alpha1.HeartbeatRequest\x1a4.accelerator_orchestrator.v1alpha1.HeartbeatResponse\x12y\n" +
+	"\x05Yield\x12/.accelerator_orchestrator.v1alpha1.YieldRequest\x1a0.accelerator_orchestrator.v1alpha1.YieldResponse\x12y\n" +
 	"\n" +
 	"ListGroups\x124.accelerator_orchestrator.v1alpha1.ListGroupsRequest\x1a5.accelerator_orchestrator.v1alpha1.ListGroupsResponse\x12\x85\x01\n" +
 	"\x0eGetGroupStatus\x128.accelerator_orchestrator.v1alpha1.GetGroupStatusRequest\x1a9.accelerator_orchestrator.v1alpha1.GetGroupStatusResponseBfZdgithub.com/llm-d-incubation/llm-d-rl-time-slicing/pkg/accelerator-orchestrator/api/v1alpha1;v1alpha1b\x06proto3"
@@ -792,42 +803,42 @@ func file_accelerator_orchestrator_proto_rawDescGZIP() []byte {
 	return file_accelerator_orchestrator_proto_rawDescData
 }
 
-var file_accelerator_orchestrator_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_accelerator_orchestrator_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_accelerator_orchestrator_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_accelerator_orchestrator_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_accelerator_orchestrator_proto_goTypes = []any{
-	(SnapshotAgentJobState_State)(0), // 0: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.State
-	(*AcquireRequest)(nil),           // 1: accelerator_orchestrator.v1alpha1.AcquireRequest
-	(*AcquireResponse)(nil),          // 2: accelerator_orchestrator.v1alpha1.AcquireResponse
-	(*YieldRequest)(nil),             // 3: accelerator_orchestrator.v1alpha1.YieldRequest
-	(*YieldResponse)(nil),            // 4: accelerator_orchestrator.v1alpha1.YieldResponse
-	(*HeartbeatRequest)(nil),         // 5: accelerator_orchestrator.v1alpha1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),        // 6: accelerator_orchestrator.v1alpha1.HeartbeatResponse
-	(*ListGroupsRequest)(nil),        // 7: accelerator_orchestrator.v1alpha1.ListGroupsRequest
-	(*ListGroupsResponse)(nil),       // 8: accelerator_orchestrator.v1alpha1.ListGroupsResponse
-	(*GetGroupStatusRequest)(nil),    // 9: accelerator_orchestrator.v1alpha1.GetGroupStatusRequest
-	(*GetGroupStatusResponse)(nil),   // 10: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse
-	(*GroupStatus)(nil),              // 11: accelerator_orchestrator.v1alpha1.GroupStatus
-	(*SnapshotAgentJobState)(nil),    // 12: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState
+	(GroupStatus_State)(0),           // 0: accelerator_orchestrator.v1alpha1.GroupStatus.State
+	(SnapshotAgentJobState_State)(0), // 1: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.State
+	(*AcquireRequest)(nil),           // 2: accelerator_orchestrator.v1alpha1.AcquireRequest
+	(*AcquireResponse)(nil),          // 3: accelerator_orchestrator.v1alpha1.AcquireResponse
+	(*YieldRequest)(nil),             // 4: accelerator_orchestrator.v1alpha1.YieldRequest
+	(*YieldResponse)(nil),            // 5: accelerator_orchestrator.v1alpha1.YieldResponse
+	(*ListGroupsRequest)(nil),        // 6: accelerator_orchestrator.v1alpha1.ListGroupsRequest
+	(*ListGroupsResponse)(nil),       // 7: accelerator_orchestrator.v1alpha1.ListGroupsResponse
+	(*GetGroupStatusRequest)(nil),    // 8: accelerator_orchestrator.v1alpha1.GetGroupStatusRequest
+	(*GetGroupStatusResponse)(nil),   // 9: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse
+	(*GroupStatus)(nil),              // 10: accelerator_orchestrator.v1alpha1.GroupStatus
+	(*SnapshotAgentJobState)(nil),    // 11: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState
+	(*timestamppb.Timestamp)(nil),    // 12: google.protobuf.Timestamp
 }
 var file_accelerator_orchestrator_proto_depIdxs = []int32{
-	11, // 0: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse.group:type_name -> accelerator_orchestrator.v1alpha1.GroupStatus
-	12, // 1: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse.agent_job_states:type_name -> accelerator_orchestrator.v1alpha1.SnapshotAgentJobState
-	0,  // 2: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.job_state:type_name -> accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.State
-	1,  // 3: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Acquire:input_type -> accelerator_orchestrator.v1alpha1.AcquireRequest
-	3,  // 4: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Yield:input_type -> accelerator_orchestrator.v1alpha1.YieldRequest
-	5,  // 5: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Heartbeat:input_type -> accelerator_orchestrator.v1alpha1.HeartbeatRequest
-	7,  // 6: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.ListGroups:input_type -> accelerator_orchestrator.v1alpha1.ListGroupsRequest
-	9,  // 7: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.GetGroupStatus:input_type -> accelerator_orchestrator.v1alpha1.GetGroupStatusRequest
-	2,  // 8: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Acquire:output_type -> accelerator_orchestrator.v1alpha1.AcquireResponse
-	4,  // 9: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Yield:output_type -> accelerator_orchestrator.v1alpha1.YieldResponse
-	6,  // 10: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Heartbeat:output_type -> accelerator_orchestrator.v1alpha1.HeartbeatResponse
-	8,  // 11: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.ListGroups:output_type -> accelerator_orchestrator.v1alpha1.ListGroupsResponse
-	10, // 12: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.GetGroupStatus:output_type -> accelerator_orchestrator.v1alpha1.GetGroupStatusResponse
-	8,  // [8:13] is the sub-list for method output_type
-	3,  // [3:8] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	10, // 0: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse.group:type_name -> accelerator_orchestrator.v1alpha1.GroupStatus
+	11, // 1: accelerator_orchestrator.v1alpha1.GetGroupStatusResponse.agent_job_states:type_name -> accelerator_orchestrator.v1alpha1.SnapshotAgentJobState
+	0,  // 2: accelerator_orchestrator.v1alpha1.GroupStatus.group_state:type_name -> accelerator_orchestrator.v1alpha1.GroupStatus.State
+	12, // 3: accelerator_orchestrator.v1alpha1.GroupStatus.state_timestamp:type_name -> google.protobuf.Timestamp
+	1,  // 4: accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.job_state:type_name -> accelerator_orchestrator.v1alpha1.SnapshotAgentJobState.State
+	2,  // 5: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Acquire:input_type -> accelerator_orchestrator.v1alpha1.AcquireRequest
+	4,  // 6: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Yield:input_type -> accelerator_orchestrator.v1alpha1.YieldRequest
+	6,  // 7: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.ListGroups:input_type -> accelerator_orchestrator.v1alpha1.ListGroupsRequest
+	8,  // 8: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.GetGroupStatus:input_type -> accelerator_orchestrator.v1alpha1.GetGroupStatusRequest
+	3,  // 9: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Acquire:output_type -> accelerator_orchestrator.v1alpha1.AcquireResponse
+	5,  // 10: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.Yield:output_type -> accelerator_orchestrator.v1alpha1.YieldResponse
+	7,  // 11: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.ListGroups:output_type -> accelerator_orchestrator.v1alpha1.ListGroupsResponse
+	9,  // 12: accelerator_orchestrator.v1alpha1.AcceleratorOrchestratorService.GetGroupStatus:output_type -> accelerator_orchestrator.v1alpha1.GetGroupStatusResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_accelerator_orchestrator_proto_init() }
@@ -840,8 +851,8 @@ func file_accelerator_orchestrator_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_accelerator_orchestrator_proto_rawDesc), len(file_accelerator_orchestrator_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   12,
+			NumEnums:      2,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
