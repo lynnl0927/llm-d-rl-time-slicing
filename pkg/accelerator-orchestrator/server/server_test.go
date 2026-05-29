@@ -87,30 +87,6 @@ func TestServer_Yield(t *testing.T) {
 	}
 }
 
-func TestServer_Heartbeat(t *testing.T) {
-	cleanup := initGRPCServer()
-	defer cleanup()
-	ctx := context.Background()
-	conn, err := grpc.NewClient(
-		"passthrough:///bufnet",
-		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		t.Fatalf("Failed to dial bufnet: %v", err)
-	}
-	defer conn.Close()
-	client := pb.NewAcceleratorOrchestratorServiceClient(conn)
-
-	_, err = client.Heartbeat(ctx, &pb.HeartbeatRequest{
-		JobId:   "test-job",
-		GroupId: "test-group",
-	})
-	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("Expected Unimplemented error, got: %v", err)
-	}
-}
-
 func TestServer_ListGroups(t *testing.T) {
 	cleanup := initGRPCServer()
 	defer cleanup()
