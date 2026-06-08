@@ -21,16 +21,25 @@ import (
 type Server struct {
 	pb.UnimplementedSnapshotAgentServiceServer
 	state          *sm.StateManager
-	backendMap     map[string]backends.Backend
-	defaultBackend string
+	backendMap     map[backends.BackendType]backends.Backend
+	defaultBackend backends.BackendType
 }
 
 // NewServer creates a new Server instance.
-func NewServer(backendMap map[string]backends.Backend, defaultBackend string) *Server {
+func NewServer(backendMap map[backends.BackendType]backends.Backend, defaultBackend backends.BackendType) *Server {
 	return &Server{
 		state:          sm.NewStateManager(),
 		backendMap:     backendMap,
 		defaultBackend: defaultBackend,
+	}
+}
+
+func (s *Server) getBackendType(backend pb.Backend) backends.BackendType {
+	switch backend {
+	case pb.Backend_BACKEND_CUDA:
+		return backends.BackendCuda
+	default:
+		return s.defaultBackend
 	}
 }
 
@@ -39,19 +48,16 @@ func (s *Server) Snapshot(ctx context.Context, req *pb.SnapshotRequest) (*pb.Sna
 	logger := klog.FromContext(ctx)
 	logger.Info("Snapshot called", "jobID", req.GetJobId(), "group", req.GetGroup(), "backend", req.GetBackend())
 
-	backendName := req.GetBackend()
-	if backendName == "" {
-		backendName = s.defaultBackend
-	}
+	backendType := s.getBackendType(req.GetBackend())
 
-	backend, ok := s.backendMap[backendName]
+	backend, ok := s.backendMap[backendType]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "backend %s not found", backendName)
+		return nil, status.Errorf(codes.NotFound, "backend %s not found", backendType)
 	}
 
 	bgCtx := context.WithoutCancel(ctx)
 	opID, err := s.state.StartSnapshot(req.GetJobId(), req.GetGroup(), func() error {
-		logger.Info("Background: Starting snapshot", "jobID", req.GetJobId(), "backend", backendName)
+		logger.Info("Background: Starting snapshot", "jobID", req.GetJobId(), "backend", backendType)
 		pods, err := podutils.GetLocalPods(bgCtx, req.GetJobId())
 		if err != nil {
 			return fmt.Errorf("failed to get local pods: %w", err)
@@ -103,19 +109,16 @@ func (s *Server) Restore(ctx context.Context, req *pb.RestoreRequest) (*pb.Resto
 	logger := klog.FromContext(ctx)
 	logger.Info("Restore called", "jobID", req.GetJobId(), "group", req.GetGroup(), "backend", req.GetBackend())
 
-	backendName := req.GetBackend()
-	if backendName == "" {
-		backendName = s.defaultBackend
-	}
+	backendType := s.getBackendType(req.GetBackend())
 
-	backend, ok := s.backendMap[backendName]
+	backend, ok := s.backendMap[backendType]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "backend %s not found", backendName)
+		return nil, status.Errorf(codes.NotFound, "backend %s not found", backendType)
 	}
 
 	bgCtx := context.WithoutCancel(ctx)
 	opID, err := s.state.StartRestore(req.GetJobId(), req.GetGroup(), func() error {
-		logger.Info("Background: Starting restore", "jobID", req.GetJobId(), "backend", backendName)
+		logger.Info("Background: Starting restore", "jobID", req.GetJobId(), "backend", backendType)
 
 		pids, err := s.state.GetJobPIDs(req.GetJobId())
 		if err != nil {
@@ -127,7 +130,7 @@ func (s *Server) Restore(ctx context.Context, req *pb.RestoreRequest) (*pb.Resto
 			pidStrings = append(pidStrings, strconv.Itoa(pid))
 		}
 
-		logger.Info("Restoring PIDs", "pids", pidStrings, "backend", backendName)
+		logger.Info("Restoring PIDs", "pids", pidStrings, "backend", backendType)
 		if err := backend.Restore(bgCtx, pidStrings); err != nil {
 			return fmt.Errorf("failed to restore job %s: %w", req.GetJobId(), err)
 		}
@@ -190,7 +193,7 @@ func (s *Server) Health(ctx context.Context, req *pb.HealthRequest) (*pb.HealthR
 }
 
 // StartServer starts the gRPC server on the specified port.
-func StartServer(port int, backendMap map[string]backends.Backend, defaultBackend string) error {
+func StartServer(port int, backendMap map[backends.BackendType]backends.Backend, defaultBackend backends.BackendType) error {
 	ctx := context.Background()
 	logger := klog.FromContext(ctx)
 	lc := net.ListenConfig{}

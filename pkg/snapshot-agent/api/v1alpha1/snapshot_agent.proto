@@ -22,10 +22,15 @@ service SnapshotAgentService {
   rpc Health(HealthRequest) returns (HealthResponse);
 }
 
+enum Backend {
+  BACKEND_UNSPECIFIED = 0;
+  BACKEND_CUDA = 1;
+}
+
 message SnapshotRequest {
   string job_id = 1;
   string group = 2;
-  string backend = 3;
+  Backend backend = 3;
 }
 
 message SnapshotResponse {
@@ -35,7 +40,7 @@ message SnapshotResponse {
 message RestoreRequest {
   string job_id = 1;
   string group = 2;
-  string backend = 3;
+  Backend backend = 3;
 }
 
 message RestoreResponse {

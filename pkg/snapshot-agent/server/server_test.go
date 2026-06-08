@@ -25,11 +25,11 @@ func initGRPCServer() {
 	s := grpc.NewServer()
 
 	noopBackend := backends.NewNoopBackend()
-	backendsMap := map[string]backends.Backend{
-		"noop": noopBackend,
+	backendsMap := map[backends.BackendType]backends.Backend{
+		backends.BackendNoop: noopBackend,
 	}
 
-	pb.RegisterSnapshotAgentServiceServer(s, server.NewServer(backendsMap, "noop"))
+	pb.RegisterSnapshotAgentServiceServer(s, server.NewServer(backendsMap, backends.BackendNoop))
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			klog.Fatalf("Server exited with error: %v", err)
@@ -54,33 +54,12 @@ func TestServer_Snapshot(t *testing.T) {
 	client := pb.NewSnapshotAgentServiceClient(conn)
 
 	_, err = client.Snapshot(ctx, &pb.SnapshotRequest{
-		JobId: "test-job",
-		Group: "test-group",
-	})
-	if err != nil {
-		t.Errorf("Expected success, got error: %v", err)
-	}
-}
-
-func TestServer_Snapshot_InvalidBackend(t *testing.T) {
-	initGRPCServer()
-	ctx := context.Background()
-	conn, err := grpc.NewClient("passthrough://bufnet",
-		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("Failed to dial bufnet: %v", err)
-	}
-	defer conn.Close()
-	client := pb.NewSnapshotAgentServiceClient(conn)
-
-	_, err = client.Snapshot(ctx, &pb.SnapshotRequest{
 		JobId:   "test-job",
 		Group:   "test-group",
-		Backend: "invalid-backend",
+		Backend: pb.Backend_BACKEND_UNSPECIFIED,
 	})
-	if status.Code(err) != codes.NotFound {
-		t.Errorf("Expected NotFound error, got: %v", err)
+	if err != nil {
+		t.Errorf("Expected success (using default noop backend), got error: %v", err)
 	}
 }
 
@@ -97,11 +76,12 @@ func TestServer_Restore(t *testing.T) {
 	client := pb.NewSnapshotAgentServiceClient(conn)
 
 	_, err = client.Restore(ctx, &pb.RestoreRequest{
-		JobId: "test-job",
-		Group: "test-group",
+		JobId:   "test-job",
+		Group:   "test-group",
+		Backend: pb.Backend_BACKEND_UNSPECIFIED,
 	})
 	if err != nil {
-		t.Errorf("Expected success, got error: %v", err)
+		t.Errorf("Expected success (using default noop backend), got error: %v", err)
 	}
 }
 

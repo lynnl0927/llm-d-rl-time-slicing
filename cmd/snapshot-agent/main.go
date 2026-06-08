@@ -31,15 +31,13 @@ func main() {
 	ctx := context.Background()
 	logger := klog.FromContext(ctx)
 
-	cudaBackend := backends.NewCudaCheckpoint()
-
-	registeredBackends := map[string]backends.Backend{
-		"cuda": cudaBackend,
-		"noop": backends.NewNoopBackend(),
+	registeredBackends := map[backends.BackendType]backends.Backend{
+		backends.BackendCuda: backends.NewCudaCheckpoint(),
+		backends.BackendNoop: backends.NewNoopBackend(),
 	}
 
 	logger.Info("Starting Snapshot Agent", "port", *port)
-	if err := server.StartServer(*port, registeredBackends, "cuda"); err != nil {
+	if err := server.StartServer(*port, registeredBackends, backends.BackendCuda); err != nil {
 		logger.Error(err, "Failed to start server")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
