@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -67,20 +68,9 @@ func (s *Server) Snapshot(ctx context.Context, req *pb.SnapshotRequest) (*pb.Sna
 			return fmt.Errorf("no pods found for job %s", req.GetJobId())
 		}
 
-		var allPIDs []int
-		var allPIDStrings []string
-		logger.Info("Pods found for job", "jobID", req.GetJobId(), "pods", pods)
-		for i := range pods {
-			pod := &pods[i]
-			pids, err := podutils.GetPodPIDs(bgCtx, pod.Name, pod.Namespace)
-			logger.Info("Pod has PIDs", "podName", pod.Name, "pids", pids)
-			if err != nil {
-				return fmt.Errorf("failed to get pod PIDs: %w", err)
-			}
-			allPIDs = append(allPIDs, pids...)
-			for _, pid := range pids {
-				allPIDStrings = append(allPIDStrings, strconv.Itoa(pid))
-			}
+		allPIDs, allPIDStrings, err := getPIDsFromPods(bgCtx, pods)
+		if err != nil {
+			return fmt.Errorf("failed to get PIDs from pods: %w", err)
 		}
 
 		if len(allPIDStrings) == 0 {
@@ -210,4 +200,20 @@ func StartServer(port int, backendMap map[backends.BackendType]backends.Backend,
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil
+}
+
+func getPIDsFromPods(ctx context.Context, pods []v1.Pod) ([]int, []string, error) {
+	var allPIDs []int
+	var allPIDStrings []string
+	for _, pod := range pods {
+		pids, err := podutils.GetPodPIDs(ctx, pod.Name, pod.Namespace)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get pod PIDs: %w", err)
+		}
+		allPIDs = append(allPIDs, pids...)
+		for _, pid := range pids {
+			allPIDStrings = append(allPIDStrings, strconv.Itoa(pid))
+		}
+	}
+	return allPIDs, allPIDStrings, nil
 }
