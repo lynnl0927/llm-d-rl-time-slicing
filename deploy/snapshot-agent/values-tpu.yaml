@@ -1,0 +1,42 @@
+# Overrides for running the snapshot agent on GKE TPU node pools.
+# Usage (subchart directly):
+#   helm install snapshot-agent deploy/snapshot-agent -n timeslice-system -f deploy/snapshot-agent/values-tpu.yaml
+# or through the parent chart, nesting these keys under `snapshot-agent:`
+# (see deploy/values-tpu.yaml).
+
+image:
+  # Built with docker/snapshot-agent/Dockerfile.tpu (make snapshot-agent-image-push-tpu):
+  # ships the tpu-checkpoint CLI and a Python runtime instead of the NVIDIA bits.
+  tag: "latest-tpu"
+
+# Requests without a backend_config (i.e. all orchestrator-driven
+# snapshot/restore) use the libtpu backend.
+defaultBackend: "tpu"
+
+# Discover accelerator processes via libtpu control threads + /dev/vfio fds
+# instead of NVML.
+acceleratorType: "tpu"
+
+nvidia:
+  driver:
+    enabled: false
+  # Keep the host /dev mount: the vfio gate and TPU discovery need /dev/vfio.
+  devices:
+    enabled: true
+    hostPath: /dev
+    mountPath: /dev
+
+tolerations:
+  - key: "google.com/tpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+  - key: "timeslice.io/shared"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+# Restrict the DaemonSet to TPU nodes. Adjust the accelerator value to the
+# node pool's type (v5e single-host shown; `kubectl get nodes
+# -L cloud.google.com/gke-tpu-accelerator` to check).
+nodeSelector:
+  cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice

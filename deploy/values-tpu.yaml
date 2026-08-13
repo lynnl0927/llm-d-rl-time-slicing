@@ -1,0 +1,40 @@
+# Parent-chart overrides for a TPU cluster (GKE, v5e/v6e node pools).
+# Usage:
+#   helm dependency build deploy/
+#   helm install timeslice deploy/ -n timeslice-system --create-namespace -f deploy/values-tpu.yaml
+#
+# Differences from the GPU defaults:
+#   - snapshot-agent runs the TPU image (tpu-checkpoint CLI) with the libtpu
+#     backend as default and TPU process discovery.
+#   - No NVIDIA DRA driver: TPU jobs co-schedule via the workload manifests
+#     (device-plugin job + explicit /dev/vfio job), not DRA ResourceClaims.
+
+timesliceorchestrator:
+  enabled: true
+
+snapshot-agent:
+  enabled: true
+  image:
+    tag: latest-tpu
+  defaultBackend: "tpu"
+  acceleratorType: "tpu"
+  nvidia:
+    driver:
+      enabled: false
+    devices:
+      enabled: true
+      hostPath: /dev
+      mountPath: /dev
+  tolerations:
+    - key: "google.com/tpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "timeslice.io/shared"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  nodeSelector:
+    cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
+
+nvidia-dra-driver-gpu:
+  enabled: false

@@ -20,6 +20,9 @@ const (
 	// BackendAppChannel suspends/resumes application-aware workloads through
 	// their registered workload channels (see the WorkloadChannel RPC).
 	BackendAppChannel BackendType = "app-channel"
+	// BackendTpu is the libtpu-based TPU checkpointing backend
+	// (tpu-checkpoint CLI).
+	BackendTpu BackendType = "tpu"
 )
 
 // Request carries one backend invocation: the job it targets and the

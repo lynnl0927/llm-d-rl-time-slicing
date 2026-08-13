@@ -2,6 +2,7 @@ package backends
 
 import (
 	"context"
+	"os"
 	"time"
 )
 
@@ -22,4 +23,16 @@ func (c *CudaCheckpoint) SetNvmlClient(n nvmlClient) {
 
 func (c *CudaCheckpoint) SetLookPath(f func(string) (string, error)) {
 	c.lookPath = f
+}
+
+func (t *TpuCheckpoint) SetExecCommand(f func(ctx context.Context, name string, args ...string) ([]byte, error)) {
+	t.execCommand = f
+}
+
+func (t *TpuCheckpoint) SetLookPath(f func(string) (string, error)) {
+	t.lookPath = f
+}
+
+func (t *TpuCheckpoint) SetStatPath(f func(string) (os.FileInfo, error)) {
+	t.statPath = f
 }

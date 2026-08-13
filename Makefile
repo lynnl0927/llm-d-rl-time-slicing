@@ -137,6 +137,27 @@ snapshot-agent-image-push: ## Build and push snapshot-agent container image
 		-f $(SNAPSHOT_AGENT_DOCKERFILE) \
 		.
 
+.PHONY: snapshot-agent-image-build-tpu
+snapshot-agent-image-build-tpu: ## Build snapshot-agent TPU container image (local only)
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		--tag $(SNAPSHOT_AGENT_IMAGE):$(VERSION)-tpu \
+		--tag $(SNAPSHOT_AGENT_IMAGE):latest-tpu \
+		-f $(SNAPSHOT_AGENT_DOCKERFILE).tpu \
+		.
+
+.PHONY: snapshot-agent-image-push-tpu
+snapshot-agent-image-push-tpu: ## Build and push snapshot-agent TPU container image
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		--push \
+		--annotation "index:org.opencontainers.image.source=https://github.com/llm-d-incubation/$(PROJECT_NAME)" \
+		--annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+		--tag $(SNAPSHOT_AGENT_IMAGE):$(VERSION)-tpu \
+		--tag $(SNAPSHOT_AGENT_IMAGE):latest-tpu \
+		-f $(SNAPSHOT_AGENT_DOCKERFILE).tpu \
+		.
+
 
 ##@ CI Helpers
 

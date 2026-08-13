@@ -33,6 +33,15 @@ port: 9001
 securityContext:
   privileged: true
 
+# Backend used when a request carries no backend_config (the orchestrator
+# never sends one). Empty keeps the agent's built-in default ("cuda").
+# Set to "tpu" on TPU node pools (see values-tpu.yaml).
+defaultBackend: ""
+
+# Accelerator process discovery: empty (NVML) or "tpu" (libtpu control
+# threads + /dev/vfio fds).
+acceleratorType: ""
+
 nvidia:
   driver:
     enabled: true

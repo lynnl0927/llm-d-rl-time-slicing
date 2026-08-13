@@ -1563,7 +1563,10 @@ func TestController_PeriodicResync(t *testing.T) {
 	}
 }
 
-func TestController_Reconcile_DeduceLoadedJob_IdleNotLoaded(t *testing.T) {
+// An IDLE job (pods deployed, accelerator never touched) counts as loaded
+// when the node is otherwise free: there is no context to restore, so its
+// first Acquire must not block (cold start with pre-deployed pods).
+func TestController_Reconcile_DeduceLoadedJob_IdleLoadedWhenNodeFree(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1615,9 +1618,10 @@ func TestController_Reconcile_DeduceLoadedJob_IdleNotLoaded(t *testing.T) {
 		t.Fatalf("Timed out waiting for reconcile: %v", err)
 	}
 
-	// job-1 should NOT be considered loaded because it is IDLE.
-	if group.Status().LoadedJob() != "" {
-		t.Errorf("Expected loadedJob to be empty, got %q", group.Status().LoadedJob())
+	// job-1 IS considered loaded: it is IDLE (never touched the accelerator)
+	// and no other job is running on the node.
+	if group.Status().LoadedJob() != "job-1" {
+		t.Errorf("Expected loadedJob to be job-1, got %q", group.Status().LoadedJob())
 	}
 	state, _ := group.Status().State()
 	if state != pb.GroupStatus_STATE_IDLE_YIELDED {
@@ -1625,7 +1629,12 @@ func TestController_Reconcile_DeduceLoadedJob_IdleNotLoaded(t *testing.T) {
 	}
 }
 
-func TestController_Reconcile_PreemptionSafetyGates_IdleJob(t *testing.T) {
+// An IDLE peer job must not block the active job's restore: it has no
+// accelerator context to snapshot, and under the cooperative contract it
+// cannot start using the node without holding the lock. (Before the IDLE
+// tolerance change, reconciliation stalled here with "preemption pending",
+// deadlocking cold starts with pre-deployed pods.)
+func TestController_Reconcile_PreemptionSafetyGates_IdleJobDoesNotBlock(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1664,15 +1673,41 @@ func TestController_Reconcile_PreemptionSafetyGates_IdleJob(t *testing.T) {
 		t.Fatalf("failed to put job2: %v", err)
 	}
 
-	// 3. Mock SnapshotAgentStore to fail if Snapshot/Restore is called
+	// 3. Mock SnapshotAgentStore: the IDLE peer needs no snapshot, so only
+	// Restore of the active job may be called.
+	restoreCalled := make(chan string, 1)
+	getStatusCalls := 0
 	mockAgentStore := &controller.MockSnapshotAgentStore{
+		GetStatusFunc: func(ctx context.Context, node string) (*agentpb.StatusResponse, error) {
+			if node == nodeName {
+				getStatusCalls++
+				state := agentpb.JobState_JOB_STATE_SAVED
+				if getStatusCalls > 1 {
+					state = agentpb.JobState_JOB_STATE_RUNNING
+				}
+				return &agentpb.StatusResponse{
+					JobStatuses: []*agentpb.JobStatus{
+						{JobId: "job-1", State: state},
+						{JobId: "job-2", State: agentpb.JobState_JOB_STATE_IDLE},
+					},
+				}, nil
+			}
+			return &agentpb.StatusResponse{}, nil
+		},
 		SnapshotFunc: func(ctx context.Context, node, jobID, gID string) (*agentpb.SnapshotResponse, error) {
-			t.Errorf("Unexpected call to Snapshot")
+			t.Errorf("Unexpected call to Snapshot for job %s (IDLE peer has no context)", jobID)
 			return nil, fmt.Errorf("unexpected call")
 		},
 		RestoreFunc: func(ctx context.Context, node, jobID, gID string) (*agentpb.RestoreResponse, error) {
-			t.Errorf("Unexpected call to Restore")
-			return nil, fmt.Errorf("unexpected call")
+			if node == nodeName && jobID == "job-1" && gID == groupID {
+				restoreCalled <- jobID
+			}
+			return &agentpb.RestoreResponse{OperationId: "op-123"}, nil
+		},
+		OperationFunc: func(ctx context.Context, node, operationID string) (*agentpb.GetOperationResponse, error) {
+			return &agentpb.GetOperationResponse{
+				Status: agentpb.OperationStatus_OPERATION_STATUS_COMPLETE,
+			}, nil
 		},
 	}
 
@@ -1694,16 +1729,14 @@ func TestController_Reconcile_PreemptionSafetyGates_IdleJob(t *testing.T) {
 	// Trigger reconcile
 	testQueue.Add(groupID)
 
-	// Verify that it failed and was re-queued (AddRateLimited called)
-	err = waitWithTimeout(func() bool {
-		return testQueue.getAddRateLimitedCount() > 0
-	}, 2*time.Second)
-	if err != nil {
-		t.Fatal("Timed out waiting for item to be re-queued (reconciliation should have failed)")
-	}
-
-	if testQueue.getAddRateLimitedCount() < 1 {
-		t.Errorf("Expected AddRateLimited to be called at least once, got %d", testQueue.getAddRateLimitedCount())
+	// Verify the IDLE peer did not gate the restore of the active job
+	select {
+	case jobID := <-restoreCalled:
+		if jobID != "job-1" {
+			t.Errorf("Expected restore to be called for job-1, got %s", jobID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out waiting for Restore to be called (IDLE peer should not block it)")
 	}
 }
 

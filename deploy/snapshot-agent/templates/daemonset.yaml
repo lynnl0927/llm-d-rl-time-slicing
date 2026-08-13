@@ -45,11 +45,19 @@ spec:
             {{- if .Values.nvidia.driver.enabled }}
             - name: LD_LIBRARY_PATH
               value: {{ join ":" .Values.nvidia.driver.libraryPaths }}
-            {{- end }}
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
+            {{- end }}
+            {{- if .Values.defaultBackend }}
+            - name: DEFAULT_BACKEND
+              value: {{ .Values.defaultBackend | quote }}
+            {{- end }}
+            {{- if .Values.acceleratorType }}
+            - name: ACCELERATOR_TYPE
+              value: {{ .Values.acceleratorType | quote }}
+            {{- end }}
           ports:
             - name: grpc
               containerPort: {{ .Values.port }}

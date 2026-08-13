@@ -1,0 +1,32 @@
+# Snapshot agent image for TPU nodes: same Go agent, but the runtime stage
+# carries a Python interpreter for the tpu-checkpoint CLI (the TPU backend
+# shells out to it, the way the CUDA backend shells out to cuda-checkpoint)
+# and skips the NVIDIA bits.
+
+# --- Build stage ---
+FROM golang:1.26.2 AS builder
+
+WORKDIR /workspace
+
+# Copy the entire project to resolve internal dependencies
+COPY . .
+
+# Recreate go.work to ensure clean multi-module build
+RUN rm -f go.work && \
+    go work init . && \
+    go work use ./pkg/timeslice-orchestrator && \
+    go work use ./pkg/snapshot-agent
+
+# Build the snapshot-agent
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /workspace/snapshot-agent ./cmd/snapshot-agent
+
+# --- Runtime stage ---
+# python:3.12-slim instead of distroless: tpu-checkpoint is a Python script.
+FROM python:3.12-slim
+
+WORKDIR /
+COPY --from=builder /workspace/snapshot-agent .
+COPY tools/tpu-checkpoint/tpu_checkpoint.py /usr/local/bin/tpu-checkpoint
+RUN chmod +x /usr/local/bin/tpu-checkpoint
+
+ENTRYPOINT ["/snapshot-agent"]

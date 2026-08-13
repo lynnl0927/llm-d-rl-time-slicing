@@ -316,8 +316,15 @@ func (c *Controller) reconcileNode(ctx context.Context, groupID, nodeName, activ
 				return fmt.Errorf("failed to refresh agent state after snapshot: %w", err)
 			}
 		case pb.SnapshotAgentJobState_STATE_IDLE:
-			slog.InfoContext(ctx, "Other job is IDLE, waiting for it to become ACTIVE before preemption", "jobID", jobID)
-			return fmt.Errorf("preemption pending: waiting for job %s to transition from IDLE to RUNNING", jobID)
+			// An IDLE job has never touched the accelerator on this node, so
+			// there is no context to snapshot. Under the cooperative contract
+			// a job only initializes the accelerator while holding the group
+			// lock, so it cannot start using the node behind our back — skip
+			// it rather than stalling the group (jobs whose pods are deployed
+			// before their first Acquire register as IDLE, and waiting here
+			// would deadlock the first handoff).
+			slog.InfoContext(ctx, "Other job is IDLE (no accelerator context), skipping", "jobID", jobID)
+			continue
 		case pb.SnapshotAgentJobState_STATE_TRANSITIONING:
 			slog.InfoContext(ctx, "Other job is TRANSITIONING, waiting for it to finish", "jobID", jobID)
 			return fmt.Errorf("preemption pending: job %s is currently transitioning", jobID)
@@ -391,7 +398,8 @@ func (c *Controller) tryDeduceActiveJob(ctx context.Context, group *store.Group)
 
 // isJobLoaded checks if a specific job is currently loaded on the nodes of the group.
 // A job J is considered loaded if, for every node N in the group, the job's state on N
-// is either STATE_RUNNING, or STATE_UNSPECIFIED and no other job is running on N.
+// is either STATE_RUNNING, or STATE_UNSPECIFIED/STATE_IDLE (never touched the
+// accelerator, so nothing needs restoring) and no other job is running on N.
 // If multiple jobs are running on the same node, it returns an error (impossible state).
 func (c *Controller) isJobLoaded(ctx context.Context, group *store.Group, jobID string) (bool, error) {
 	if jobID == "" {
@@ -444,7 +452,13 @@ func (c *Controller) isJobLoaded(ctx context.Context, group *store.Group, jobID 
 		switch state {
 		case pb.SnapshotAgentJobState_STATE_RUNNING:
 			// Safe, checked for conflicts already
-		case pb.SnapshotAgentJobState_STATE_UNSPECIFIED:
+		case pb.SnapshotAgentJobState_STATE_UNSPECIFIED, pb.SnapshotAgentJobState_STATE_IDLE:
+			// IDLE is equivalent to UNSPECIFIED here: the job's pods exist
+			// but it has never touched the accelerator, so there is no
+			// context to restore. It counts as loaded when the node is free,
+			// letting its first Acquire succeed (it initializes the
+			// accelerator while holding the lock, then the agent's watcher
+			// observes RUNNING).
 			if nodeRunningJob[node] != "" {
 				// Another job is running on this node
 				return false, nil

@@ -94,6 +94,9 @@ func (s *Server) getSnapshotBackendType(config *pb.BackendConfig) backends.Backe
 	if config.GetAppChannel() != nil {
 		return backends.BackendAppChannel
 	}
+	if config.GetTpu() != nil {
+		return backends.BackendTpu
+	}
 	return s.defaultBackend
 }
 
@@ -165,6 +168,21 @@ func (s *Server) buildSnapshotFn(
 				s.state.UpdateJobPIDs(jobID, allPIDs)
 				return nil
 			}, nil
+		case backends.BackendTpu:
+			explicitPIDs := extractExplicitTpuPIDs(config)
+			return func() error {
+				slog.InfoContext(bgCtx, "Background: Starting snapshot", "backend", backendType)
+				allPIDs, allPIDStrings, pidErr := resolvePIDs(bgCtx, jobID, explicitPIDs)
+				if pidErr != nil {
+					return pidErr
+				}
+				tpuReq := backends.Request{JobID: jobID, Config: backends.BuildTpuConfig(allPIDStrings)}
+				if err := backend.Snapshot(bgCtx, tpuReq); err != nil {
+					return fmt.Errorf("failed to snapshot job %s: %w", jobID, err)
+				}
+				s.state.UpdateJobPIDs(jobID, allPIDs)
+				return nil
+			}, nil
 		case backends.BackendAppEndpoint, backends.BackendAppChannel:
 			return func() error {
 				slog.InfoContext(bgCtx, "Background: Starting snapshot", "backend", backendType)
@@ -186,6 +204,20 @@ func extractExplicitPIDs(config *pb.BackendConfig) []int32 {
 		return nil
 	}
 	target := cuda.GetExplicitTarget()
+	if target == nil {
+		return nil
+	}
+	return target.GetPids()
+}
+
+// extractExplicitTpuPIDs returns the explicitly targeted PIDs from a TPU
+// BackendConfig, or nil if none were provided.
+func extractExplicitTpuPIDs(config *pb.BackendConfig) []int32 {
+	tpu := config.GetTpu()
+	if tpu == nil {
+		return nil
+	}
+	target := tpu.GetExplicitTarget()
 	if target == nil {
 		return nil
 	}
@@ -227,6 +259,20 @@ func (s *Server) buildRestoreFn(
 				}
 				slog.InfoContext(bgCtx, "Restoring PIDs", "pids", pidStrings, "backend", backendType)
 				return backend.Restore(bgCtx, backends.Request{JobID: jobID, Config: backends.BuildCudaConfig(pidStrings)})
+			}, nil
+		case backends.BackendTpu:
+			return func() error {
+				slog.InfoContext(bgCtx, "Background: Starting restore", "backend", backendType)
+				pids, pidErr := s.state.GetJobPIDs(jobID)
+				if pidErr != nil {
+					return fmt.Errorf("failed to get PIDs for job %s: %w", jobID, pidErr)
+				}
+				var pidStrings []string
+				for _, pid := range pids {
+					pidStrings = append(pidStrings, strconv.Itoa(pid))
+				}
+				slog.InfoContext(bgCtx, "Restoring PIDs", "pids", pidStrings, "backend", backendType)
+				return backend.Restore(bgCtx, backends.Request{JobID: jobID, Config: backends.BuildTpuConfig(pidStrings)})
 			}, nil
 		case backends.BackendAppEndpoint, backends.BackendAppChannel:
 			return func() error {
