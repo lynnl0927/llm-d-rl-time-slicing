@@ -131,6 +131,37 @@ def get_vfio_fds(pid):
     return sorted(set(held))
 
 
+def scan_vfio_holders():
+    """Host-wide scan: which processes hold which /dev/vfio group fds.
+
+    Returns {"/dev/vfio/N": ["pid(comm)", ...]}. Runs on the host (hostPID), so
+    on a shared node this attributes holds across ALL time-sliced jobs — the
+    in-band answer to "who is holding the vfio lock" when a gate waits or a
+    checkpoint leaves groups busy. A full /proc fd sweep of a fat libtpu
+    process costs O(100ms); callers rate-limit to every few seconds.
+    """
+    holders = {}
+    for fddir in glob.glob("/proc/[0-9]*/fd"):
+        pid = fddir.split("/")[2]
+        held = set()
+        for fd in glob.glob(f"{fddir}/[0-9]*"):
+            try:
+                target = os.readlink(fd)
+            except OSError:
+                continue
+            if re.fullmatch(r"/dev/vfio/\d+", target):
+                held.add(target)
+        if held:
+            try:
+                with open(f"/proc/{pid}/comm") as f:
+                    comm = f.read().strip()
+            except OSError:
+                comm = "?"
+            for g in held:
+                holders.setdefault(g, []).append(f"{pid}({comm})")
+    return {g: sorted(v) for g, v in sorted(holders.items())}
+
+
 def wait_vfio_free(timeout_s, poll_s=0.25):
     """Block until every /dev/vfio iommu group on this host is openable.
 
@@ -144,6 +175,7 @@ def wait_vfio_free(timeout_s, poll_s=0.25):
         _log("vfio gate: no /dev/vfio groups visible on this host; skipping")
         return 0.0
     t0 = time.time()
+    last_holder_log = 0.0
     while True:
         busy = []
         for g in groups:
@@ -157,9 +189,19 @@ def wait_vfio_free(timeout_s, poll_s=0.25):
             if waited > 0.5:
                 _log(f"vfio gate: waited {waited:.2f}s for group release")
             return waited
-        if time.time() - t0 > timeout_s:
+        now = time.time()
+        # Attribute the hold while we wait (first hit, then every ~5s): which
+        # PID/comm of which job is pinning each busy group.
+        if now - last_holder_log >= 5.0:
+            holders = scan_vfio_holders()
+            _log(f"vfio gate: waiting {now - t0:.1f}s; busy={ {g: holders.get(g, ['<no fd holder: kernel-side hold?>']) for g in busy} }")
+            last_holder_log = now
+        if now - t0 > timeout_s:
+            holders = scan_vfio_holders()
             raise RuntimeError(
-                f"vfio gate: groups still busy after {timeout_s}s: {busy} - refusing to Restore into busy chips"
+                f"vfio gate: groups still busy after {timeout_s}s: "
+                f"{ {g: holders.get(g, ['<no fd holder: kernel-side hold?>']) for g in busy} } "
+                "- refusing to Restore into busy chips"
             )
         time.sleep(poll_s)
 
@@ -298,7 +340,12 @@ def do_checkpoint(pids, timeout):
         )
     _fan_out(pipes, "Checkpoint", retries=1, timeout=timeout)
     clear_lockfiles(pids)
-    return {"processes": len(pipes)}
+    # Post-checkpoint the parked processes should release their vfio groups
+    # within seconds; report who still holds what so release lag (and any
+    # third-party holder) is visible in the agent log.
+    holders = scan_vfio_holders()
+    _log(f"vfio holders after checkpoint: {holders or 'none'}")
+    return {"processes": len(pipes), "vfio_holders_after": holders}
 
 
 def do_restore(pids, timeout, vfio_gate_timeout):
@@ -310,7 +357,9 @@ def do_restore(pids, timeout, vfio_gate_timeout):
     # gating per-process would deadlock against the job's own mesh.
     gate_wait = wait_vfio_free(vfio_gate_timeout)
     _fan_out(pipes, "Restore", retries=0, timeout=timeout)
-    return {"processes": len(pipes), "vfio_gate_wait_s": round(gate_wait, 2)}
+    holders = scan_vfio_holders()
+    _log(f"vfio holders after restore: {holders or 'none'}")
+    return {"processes": len(pipes), "vfio_gate_wait_s": round(gate_wait, 2), "vfio_holders_after": holders}
 
 
 def do_status(pids):

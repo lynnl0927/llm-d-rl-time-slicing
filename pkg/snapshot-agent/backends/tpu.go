@@ -119,9 +119,14 @@ func (t *TpuCheckpoint) run(ctx context.Context, action string, pids []string) e
 	for _, pid := range pids {
 		args = append(args, "--pid", pid)
 	}
-	if out, err := t.execCommand(ctx, t.getTpuCheckpointPath(), args...); err != nil {
+	out, err := t.execCommand(ctx, t.getTpuCheckpointPath(), args...)
+	if err != nil {
 		return fmt.Errorf("command failed: %w, output: %s", err, string(out))
 	}
+	// Surface the CLI's per-PID timing and vfio-holder attribution lines even on
+	// success — they are the in-band record of who held which vfio group at
+	// each C/R boundary, which is exactly what a stall postmortem needs.
+	slog.InfoContext(ctx, "tpu-checkpoint output", "action", action, "output", string(out))
 	return nil
 }
 
