@@ -208,7 +208,9 @@ func (sm *StateManager) StartRestoreSlot(jobID, group, slot string, worker func(
 
 	sm.operations[opID] = op
 
-	// Update job state to TRANSITIONING
+	// Update job state to TRANSITIONING, remembering where we came from so a
+	// failed restore can roll back instead of faulting.
+	prevState := job.State
 	job.State = pb.JobState_JOB_STATE_TRANSITIONING
 
 	// 4. Asynchronous Workflow
@@ -222,11 +224,30 @@ func (sm *StateManager) StartRestoreSlot(jobID, group, slot string, worker func(
 		defer job.mu.Unlock()
 
 		op.FinishedAt = time.Now()
-		if err != nil {
+		switch {
+		case err != nil && prevState == pb.JobState_JOB_STATE_SAVED:
+			// A failed restore of a SAVED job is recoverable, not fatal: the
+			// checkpoint is intact and the usual cause is device contention —
+			// another job's workload raced onto the accelerator between the
+			// reconciler's occupancy check and the restore (e.g. a freshly
+			// deployed engine that registered IDLE and only then touched the
+			// GPU, or a finished job's teardown still releasing memory).
+			// Returning to SAVED lets the reconciler observe the interloper
+			// as RUNNING, evict it, and retry — marking FAULTED here instead
+			// permanently bricks the whole group ("group X is faulted").
+			slog.Warn("Restore failed; job returns to SAVED for retry",
+				"jobID", jobID, "error", err)
+			op.Status = pb.OperationStatus_OPERATION_STATUS_FAILED
+			op.Error = err.Error()
+			job.State = pb.JobState_JOB_STATE_SAVED
+		case err != nil:
+			// Slot-swap (from RUNNING) and fault-recovery (from FAULTED)
+			// restores keep faulting: rolling back to RUNNING after a failed
+			// swap would misstate what is loaded on the device.
 			op.Status = pb.OperationStatus_OPERATION_STATUS_FAILED
 			op.Error = err.Error()
 			job.State = pb.JobState_JOB_STATE_FAULTED
-		} else {
+		default:
 			op.Status = pb.OperationStatus_OPERATION_STATUS_COMPLETE
 			job.State = pb.JobState_JOB_STATE_RUNNING
 			job.Slot = slot

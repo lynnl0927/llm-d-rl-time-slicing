@@ -180,10 +180,13 @@ func TestStartRestore(t *testing.T) {
 			expectErrCode: codes.FailedPrecondition,
 		},
 		{
-			name:         "Worker failure leads to FAULTED",
+			// A failed restore of a SAVED job rolls back to SAVED so the
+			// reconciler can evict whatever raced onto the device and retry;
+			// FAULTED here would permanently brick the group.
+			name:         "Worker failure rolls back to SAVED",
 			initialState: pb.JobState_JOB_STATE_SAVED,
 			workerErr:    errors.New("restore failed"),
-			finalState:   pb.JobState_JOB_STATE_FAULTED,
+			finalState:   pb.JobState_JOB_STATE_SAVED,
 		},
 	}
 
@@ -426,11 +429,23 @@ func TestStartRestoreSlot(t *testing.T) {
 			expectErrCode: codes.Aborted,
 		},
 		{
-			name:         "Worker failure leads to FAULTED and keeps loaded slot",
+			name:         "Worker failure from SAVED rolls back to SAVED and keeps loaded slot",
 			initialState: pb.JobState_JOB_STATE_SAVED,
 			initialSlot:  "slot-a",
 			slot:         "slot-b",
 			workerErr:    errors.New("restore failed"),
+			finalState:   pb.JobState_JOB_STATE_SAVED,
+			finalSlot:    "slot-a",
+		},
+		{
+			// A failed live slot swap must NOT roll back to RUNNING: the
+			// device contents are indeterminate after a partial swap, so the
+			// job faults and takes the slot-aware recovery path.
+			name:         "Worker failure during live slot swap leads to FAULTED",
+			initialState: pb.JobState_JOB_STATE_RUNNING,
+			initialSlot:  "slot-a",
+			slot:         "slot-b",
+			workerErr:    errors.New("swap failed"),
 			finalState:   pb.JobState_JOB_STATE_FAULTED,
 			finalSlot:    "slot-a",
 		},
