@@ -305,6 +305,95 @@ func TestServer_Restore(t *testing.T) {
 	}
 }
 
+// TestServer_Restore_OccupancyGate verifies the pre-restore occupancy gate:
+// while a foreign workload holds the accelerator, the restore must fail
+// BEFORE the toggle (which would corrupt the suspended process) and the job
+// must roll back to SAVED so the reconciler can evict the interloper and
+// retry; once the device is free (only the job's own PIDs), restore proceeds.
+func TestServer_Restore_OccupancyGate(t *testing.T) {
+	initGRPCServer()
+	ctx := context.Background()
+	conn, err := grpc.NewClient("passthrough://bufnet",
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("Failed to dial bufnet: %v", err)
+	}
+	defer conn.Close()
+	client := pb.NewSnapshotAgentServiceClient(conn)
+
+	jobID := "test-job-occupancy-gate"
+	podName := "pod-occupancy-gate"
+	ownPIDs := []int{555}
+	prepareSavedJob(t, client, ctx, jobID, "test-group", podName, ownPIDs)
+
+	origGetGPUComputePIDs := utils.GetGPUComputePIDs
+	t.Cleanup(func() { utils.GetGPUComputePIDs = origGetGPUComputePIDs })
+
+	// A foreign process (999) is on the device alongside the job's own PID.
+	utils.GetGPUComputePIDs = func(ctx context.Context) ([]int, error) {
+		return []int{555, 999}, nil
+	}
+
+	resp, err := client.Restore(ctx, &pb.RestoreRequest{JobId: jobID, Group: "test-group"})
+	if err != nil {
+		t.Fatalf("Restore RPC failed: %v", err)
+	}
+
+	var opResp *pb.GetOperationResponse
+	for range 100 {
+		opResp, err = client.GetOperation(ctx, &pb.GetOperationRequest{OperationId: resp.GetOperationId()})
+		if err != nil {
+			t.Fatalf("GetOperation failed: %v", err)
+		}
+		if opResp.GetStatus() != pb.OperationStatus_OPERATION_STATUS_PENDING {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if opResp.GetStatus() != pb.OperationStatus_OPERATION_STATUS_FAILED {
+		t.Fatalf("Expected restore to FAIL while device is occupied, got %v", opResp.GetStatus())
+	}
+	if !strings.Contains(opResp.GetError(), "occupied by foreign GPU processes") {
+		t.Errorf("Expected occupancy-gate error, got: %q", opResp.GetError())
+	}
+
+	// The job must be back in SAVED (recoverable), not FAULTED.
+	statusResp, err := client.Status(ctx, &pb.StatusRequest{})
+	if err != nil {
+		t.Fatalf("Status RPC failed: %v", err)
+	}
+	for _, js := range statusResp.GetJobStatuses() {
+		if js.GetJobId() == jobID && js.GetState() != pb.JobState_JOB_STATE_SAVED {
+			t.Fatalf("Expected job SAVED after gated restore, got %v", js.GetState())
+		}
+	}
+
+	// Interloper evicted: only the job's own PID remains — restore proceeds.
+	utils.GetGPUComputePIDs = func(ctx context.Context) ([]int, error) {
+		return []int{555}, nil
+	}
+
+	resp, err = client.Restore(ctx, &pb.RestoreRequest{JobId: jobID, Group: "test-group"})
+	if err != nil {
+		t.Fatalf("Restore RPC after eviction failed: %v", err)
+	}
+	for range 100 {
+		opResp, err = client.GetOperation(ctx, &pb.GetOperationRequest{OperationId: resp.GetOperationId()})
+		if err != nil {
+			t.Fatalf("GetOperation failed: %v", err)
+		}
+		if opResp.GetStatus() != pb.OperationStatus_OPERATION_STATUS_PENDING {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if opResp.GetStatus() != pb.OperationStatus_OPERATION_STATUS_COMPLETE {
+		t.Fatalf("Expected restore COMPLETE on free device, got %v (error: %q)",
+			opResp.GetStatus(), opResp.GetError())
+	}
+}
+
 func TestServer_GetOperation(t *testing.T) {
 	initGRPCServer()
 	ctx := context.Background()

@@ -273,6 +273,19 @@ func (s *Server) buildRestoreFn(
 				if pidErr != nil {
 					return fmt.Errorf("failed to get PIDs for job %s: %w", jobID, pidErr)
 				}
+				// Occupancy gate: never attempt the restore toggle while a
+				// foreign workload holds the accelerator. A toggle that fails
+				// mid-restore (e.g. OOM against a workload that raced onto
+				// the device after the reconciler's check) leaves the
+				// suspended process unrestorable, so contention must be
+				// detected BEFORE touching it. Failing here is clean and
+				// recoverable: the job rolls back to SAVED and the reconciler
+				// evicts the interloper and retries.
+				if foreign := foreignGPUPIDs(bgCtx, pids); len(foreign) > 0 {
+					return fmt.Errorf(
+						"accelerator occupied by foreign GPU processes %v; refusing restore of job %s to protect its checkpoint (reconciler will evict them and retry)",
+						foreign, jobID)
+				}
 				var pidStrings []string
 				for _, pid := range pids {
 					pidStrings = append(pidStrings, strconv.Itoa(pid))
@@ -470,6 +483,31 @@ func StartServer(
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil
+}
+
+// foreignGPUPIDs returns the PIDs of GPU compute processes on this node that
+// do not belong to the job being restored (whose own PIDs are `own`). NVML
+// errors are logged and treated as "no foreigners": the gate is a best-effort
+// guard and must not block restores on transient NVML failures. Note the
+// check is node-wide, matching HasGPUProcesses: on multi-GPU nodes a workload
+// on an unrelated device also delays the restore until the device settles.
+func foreignGPUPIDs(ctx context.Context, own []int) []int {
+	all, err := podutils.GetGPUComputePIDs(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "Occupancy gate skipped: NVML query failed", "error", err)
+		return nil
+	}
+	ownSet := make(map[int]bool, len(own))
+	for _, pid := range own {
+		ownSet[pid] = true
+	}
+	var foreign []int
+	for _, pid := range all {
+		if !ownSet[pid] {
+			foreign = append(foreign, pid)
+		}
+	}
+	return foreign
 }
 
 //nolint:gocritic // The project configuration bans named returns, conflicting with this rule

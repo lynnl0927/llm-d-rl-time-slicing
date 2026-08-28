@@ -80,6 +80,48 @@ var HasGPUProcesses = func(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// GetGPUComputePIDs returns the PIDs of all processes with an active CUDA
+// context on any GPU of the node. Processes holding no VRAM (parent/daemon
+// processes without a compute context) are skipped, matching the discovery
+// filter used for checkpoint targeting. This is a lightweight NVML check
+// that does not require K8s.
+var GetGPUComputePIDs = func(ctx context.Context) ([]int, error) {
+	ret := NvmlInit()
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("failed to initialize NVML: %v", nvml.ErrorString(ret))
+	}
+	defer NvmlShutdown() //nolint:errcheck // best-effort cleanup, nothing to do on failure
+
+	count, ret := NvmlDeviceGetCount()
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("failed to get device count: %v", nvml.ErrorString(ret))
+	}
+
+	seen := make(map[int]bool)
+	var pids []int
+	for i := 0; i < count; i++ {
+		device, ret := NvmlDeviceGetHandleByIndex(i)
+		if ret != nvml.SUCCESS {
+			continue
+		}
+		procs, ret := device.GetComputeRunningProcesses()
+		if ret != nvml.SUCCESS {
+			continue
+		}
+		for _, proc := range procs {
+			if proc.UsedGpuMemory == 0 || proc.UsedGpuMemory == nvmlValueNotAvailable {
+				continue
+			}
+			pid := int(proc.Pid)
+			if !seen[pid] {
+				seen[pid] = true
+				pids = append(pids, pid)
+			}
+		}
+	}
+	return pids, nil
+}
+
 // GetLocalPods returns a list of pods running on the same node as the current pod.
 // It uses the NODE_NAME environment variable (populated via the Downward API)
 // to filter pods by node and the snapshot-agent label to filter by managed pods.
